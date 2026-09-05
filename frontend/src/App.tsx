@@ -11,6 +11,7 @@ const LanguageEnum = problemmanagement.Language;
 
 type DifficultyString = 'EASY' | 'MEDIUM' | 'HARD';
 type LanguageString = 'PYTHON' | 'JAVA' | 'C' | 'CPP';
+type TestCaseDraft = { id: string; input: string; expectedOutput: string; hidden: boolean };
 
 const emptyForm = { 
   title: '', 
@@ -48,7 +49,13 @@ function App() {
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<any>(emptyForm);
+  const [testCases, setTestCases] = useState<TestCaseDraft[]>([]);
   const [saving, setSaving] = useState(false);
+
+  const addTestCase = () => setTestCases(tc => [...tc, { id: '', input: '', expectedOutput: '', hidden: false }]);
+  const updateTestCase = (index: number, patch: Partial<TestCaseDraft>) =>
+    setTestCases(tc => tc.map((t, i) => (i === index ? { ...t, ...patch } : t)));
+  const removeTestCase = (index: number) => setTestCases(tc => tc.filter((_, i) => i !== index));
 
   const load = () => {
     // Note: GET requests don't have a body, so we just decode the response
@@ -148,7 +155,13 @@ function App() {
       const payload = problemmanagement.Problem.create({
         ...form,
         difficulty: DifficultyEnum[form.difficulty as keyof typeof DifficultyEnum],
-        topics: form.topics.split(',').map((x: string) => x.trim()).filter(Boolean)
+        topics: form.topics.split(',').map((x: string) => x.trim()).filter(Boolean),
+        // This form never touches saved solutions, so carry the existing ones through
+        // untouched when editing — otherwise they'd be wiped by the backend's sync.
+        solutions: editingId ? (selected?.solutions || []) : [],
+        tests: testCases
+          .filter(t => t.input.trim() !== '' || t.expectedOutput.trim() !== '')
+          .map(t => ({ id: t.id, input: t.input, expectedOutput: t.expectedOutput, hidden: t.hidden }))
       });
       
       const buffer = problemmanagement.Problem.encode(payload).finish();
@@ -183,7 +196,7 @@ function App() {
     <div className="app">
       <aside className="sidebar">
         <div className="brand"><div className="logo">DS</div><div><strong>Personal DSA</strong><span>your own problem vault</span></div></div>
-        <button className="new-btn" onClick={() => { setEditingId(null); setForm(emptyForm); setShowForm(true) }}><Plus size={18} /> New Problem</button>
+        <button className="new-btn" onClick={() => { setEditingId(null); setForm(emptyForm); setTestCases([]); setShowForm(true) }}><Plus size={18} /> New Problem</button>
         <div className="search"><Search size={16} /><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search problems..." /></div>
         <div className="filters">
           <Filter size={15} />
@@ -236,6 +249,12 @@ function App() {
                   spaceComplexity: selected.spaceComplexity,
                   topics: selected.topics?.join(', ') || ''
                 });
+                setTestCases((selected.tests || []).map(t => ({
+                  id: t.id || '',
+                  input: t.input || '',
+                  expectedOutput: t.expectedOutput || '',
+                  hidden: !!t.hidden
+                })));
                 setShowForm(true);
               }}><Save size={16} /> Edit</button>
               <button className={'tab ' + (mode === 'study' ? 'selected' : '')} onClick={() => setMode('study')}><BookOpen size={16} /> Study</button>
@@ -267,6 +286,29 @@ function App() {
               ))}
               <label>Time complexity<input value={form.timeComplexity} onChange={e => setForm({ ...form, timeComplexity: e.target.value })} /></label>
               <label>Space complexity<input value={form.spaceComplexity} onChange={e => setForm({ ...form, spaceComplexity: e.target.value })} /></label>
+              <div className="full testcases-block">
+                <div className="testcases-headrow">
+                  <span>Test cases</span>
+                  <button type="button" className="tc-add" onClick={addTestCase}><Plus size={14} /> Add test case</button>
+                </div>
+                {testCases.length === 0 && (
+                  <div className="testcases-empty">No test cases yet — Submit needs at least one to grade against.</div>
+                )}
+                {testCases.map((tc, i) => (
+                  <div className="testcase-row" key={i}>
+                    <div className="testcase-fields">
+                      <textarea placeholder="stdin" value={tc.input} onChange={e => updateTestCase(i, { input: e.target.value })} />
+                      <textarea placeholder="expected stdout" value={tc.expectedOutput} onChange={e => updateTestCase(i, { expectedOutput: e.target.value })} />
+                    </div>
+                    <div className="testcase-meta">
+                      <label className="hidden-toggle">
+                        <input type="checkbox" checked={tc.hidden} onChange={e => updateTestCase(i, { hidden: e.target.checked })} /> Hidden
+                      </label>
+                      <button type="button" title="Remove test case" className="icon-btn danger" onClick={() => removeTestCase(i)}><Trash2 size={14} /></button>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
             <div className="modal-actions">
               <button className="secondary" onClick={() => setShowForm(false)}>Cancel</button>

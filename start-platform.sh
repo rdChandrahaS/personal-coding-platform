@@ -15,7 +15,7 @@ echo "2/3: Booting Microservices..."
 
 # 1. Start Problem Management
 echo "   -> Starting Problem Service (Port 8081)..."
-gnome-terminal --title="Problem Service (8081)" -- bash -c "cd '$PROJECT_ROOT/problemmanagement' && ./gradlew bootRun; exec bash"
+gnome-terminal --title="Problem Service (8081)" -- bash -c "cd '$PROJECT_ROOT/services/problemmanagement' && ./gradlew bootRun; exec bash"
 
 # 2. Polling loop: Wait dynamically for the Problem Service to be ready
 echo "Waiting for Problem Service to accept connections..."
@@ -26,11 +26,11 @@ echo "Problem Service is online!"
 
 # 3. Start Execution Service
 echo "   -> Starting Execution Service (Port 8082)..."
-gnome-terminal --title="Execution Service (8082)" -- bash -c "cd '$PROJECT_ROOT/execution' && ./gradlew bootRun; exec bash"
+gnome-terminal --title="Execution Service (8082)" -- bash -c "cd '$PROJECT_ROOT/services/execution' && ./gradlew bootRun; exec bash"
 
 # 4. Start API Gateway
 echo "   -> Starting API Gateway (Port 8080)..."
-gnome-terminal --title="API Gateway (8080)" -- bash -c "cd '$PROJECT_ROOT/apigateway' && ./gradlew bootRun; exec bash"
+gnome-terminal --title="API Gateway (8080)" -- bash -c "cd '$PROJECT_ROOT/services/apigateway' && ./gradlew bootRun; exec bash"
 
 # Optional: Wait for API Gateway to be ready before starting the frontend
 echo "⏳ Waiting for API Gateway to accept connections..."

@@ -16,8 +16,10 @@ public class ProblemController {
     private final ProblemService problemService;
 
     @GetMapping(produces = "application/x-protobuf")
-    public ProblemListResponse listProblems() {
-        return problemService.listProblems();
+    public ProblemListResponse listProblems(
+        @RequestParam(required = false) String q,
+        @RequestParam(required = false) String difficulty) {
+        return problemService.listProblems(q, difficulty);
     }
 
     @GetMapping(value = "/{id}", produces = "application/x-protobuf")

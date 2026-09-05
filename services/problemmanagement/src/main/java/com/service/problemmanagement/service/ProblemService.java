@@ -1,13 +1,19 @@
 package com.service.problemmanagement.service;
 
 import java.time.Instant;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
 
 import com.service.problemmanagement.model.Problem;
+import com.service.problemmanagement.model.Solution;
+import com.service.problemmanagement.model.TestCase;
 import com.service.problemmanagement.proto.ProblemListResponse;
 import com.service.problemmanagement.repository.ProblemRepository;
 import com.service.problemmanagement.repository.SolutionRepository;
@@ -39,6 +45,8 @@ public class ProblemService {
         updateModelFromProto(model, protoRequest);
         model.setSlug(uniqueSlug(protoRequest.getTitle(), null));
         model = problems.save(model);
+        syncSolutions(model.getId(), protoRequest.getSolutionsList());
+        syncTestCases(model.getId(), protoRequest.getTestsList());
         return toProto(model);
     }
 
@@ -48,6 +56,8 @@ public class ProblemService {
             model.setSlug(uniqueSlug(protoRequest.getTitle(), model.getId()));
             model.setUpdatedAt(Instant.now());
             model = problems.save(model);
+            syncSolutions(model.getId(), protoRequest.getSolutionsList());
+            syncTestCases(model.getId(), protoRequest.getTestsList());
             return toProto(model);
         }).orElse(null);
     }
@@ -111,6 +121,70 @@ public class ProblemService {
         model.setTimeComplexity(proto.getTimeComplexity());
         model.setSpaceComplexity(proto.getSpaceComplexity());
         model.setTopics(proto.getTopicsList());
+    }
+
+    /**
+     * Persists the solutions embedded in the incoming proto Problem, treating the
+     * list as the complete, authoritative set of solutions for this problem: existing
+     * solutions are updated in place, new languages are created, and any language that
+     * was previously saved but is no longer present in the incoming list is removed.
+     */
+    private void syncSolutions(String problemId, List<com.service.problemmanagement.proto.Solution> incoming) {
+        Map<String, Solution> existingByLanguage = new HashMap<>();
+        solutions.findByProblemId(problemId).forEach(s -> existingByLanguage.put(s.getLanguage(), s));
+
+        Set<String> keepLanguages = new HashSet<>();
+        for (com.service.problemmanagement.proto.Solution protoSolution : incoming) {
+            String language = protoSolution.getLanguage().name();
+            keepLanguages.add(language);
+
+            Solution solution = existingByLanguage.get(language);
+            if (solution == null) {
+                solution = new Solution();
+                solution.setProblemId(problemId);
+                solution.setLanguage(language);
+            }
+            solution.setCode(protoSolution.getCode());
+            solution.setUpdatedAt(Instant.now());
+            solutions.save(solution);
+        }
+
+        existingByLanguage.forEach((language, solution) -> {
+            if (!keepLanguages.contains(language)) {
+                solutions.deleteById(solution.getId());
+            }
+        });
+    }
+
+    /**
+     * Persists the test cases embedded in the incoming proto Problem, treating the
+     * list as the complete, authoritative set of test cases for this problem: entries
+     * with a known id are updated in place, entries with no id (or an unknown id) are
+     * created, and any previously saved test case missing from the incoming list is removed.
+     */
+    private void syncTestCases(String problemId, List<com.service.problemmanagement.proto.TestCase> incoming) {
+        Map<String, TestCase> existingById = new HashMap<>();
+        tests.findByProblemId(problemId).forEach(t -> existingById.put(t.getId(), t));
+
+        Set<String> keepIds = new HashSet<>();
+        for (com.service.problemmanagement.proto.TestCase protoTest : incoming) {
+            TestCase testCase = existingById.get(protoTest.getId());
+            if (testCase == null) {
+                testCase = new TestCase();
+                testCase.setProblemId(problemId);
+            }
+            testCase.setInput(protoTest.getInput());
+            testCase.setExpectedOutput(protoTest.getExpectedOutput());
+            testCase.setHidden(protoTest.getHidden());
+            testCase = tests.save(testCase);
+            keepIds.add(testCase.getId());
+        }
+
+        existingById.forEach((id, testCase) -> {
+            if (!keepIds.contains(id)) {
+                tests.deleteById(id);
+            }
+        });
     }
 
     private String uniqueSlug(String title, String currentId) {
