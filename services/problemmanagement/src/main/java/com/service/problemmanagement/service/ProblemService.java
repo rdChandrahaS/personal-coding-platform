@@ -1,200 +1,146 @@
 package com.service.problemmanagement.service;
 
-import java.time.Instant;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Set;
-import java.util.stream.Collectors;
+import com.service.problemmanagement.model.*;
+import com.service.problemmanagement.repository.*;
+import com.service.problemmanagement.proto.Problem;
+import com.service.problemmanagement.proto.ProblemListResponse;
+import com.service.problemmanagement.proto.Solution;
+import com.service.problemmanagement.proto.TestCase;
+import com.service.problemmanagement.proto.Difficulty;
+import com.service.problemmanagement.proto.Language;
 
 import org.springframework.stereotype.Service;
-
-import com.service.problemmanagement.model.Problem;
-import com.service.problemmanagement.model.Solution;
-import com.service.problemmanagement.model.TestCase;
-import com.service.problemmanagement.proto.ProblemListResponse;
-import com.service.problemmanagement.repository.ProblemRepository;
-import com.service.problemmanagement.repository.SolutionRepository;
-import com.service.problemmanagement.repository.TestCaseRepository;
-
 import lombok.RequiredArgsConstructor;
+import java.util.List;
 
 @Service
 @RequiredArgsConstructor
 public class ProblemService {
 
-    private final ProblemRepository problems;
-    private final SolutionRepository solutions;
-    private final TestCaseRepository tests;
+    private final ProblemRepository problemRepo;
+    private final SolutionRepository solutionRepo;
+    private final TestCaseRepository testCaseRepo;
 
-    public ProblemListResponse listProblems() {
-        List<com.service.problemmanagement.proto.Problem> protoProblems = problems.findAll().stream()
-                .map(this::toProto)
-                .collect(Collectors.toList());
-        return ProblemListResponse.newBuilder().addAllProblems(protoProblems).build();
+    // Resolves Issue #3: Search Query and Difficulty Filtering
+    public ProblemListResponse listProblems(String q, String difficulty) {
+        List<ProblemEntity> all = problemRepo.findAll();
+        
+        List<Problem> filtered = all.stream()
+            .filter(p -> q == null || q.isBlank() || p.getTitle().toLowerCase().contains(q.toLowerCase()))
+            .filter(p -> difficulty == null || difficulty.isBlank() || p.getDifficulty().equalsIgnoreCase(difficulty))
+            .map(this::toProto)
+            .toList();
+            
+        return ProblemListResponse.newBuilder().addAllProblems(filtered).build();
     }
 
-    public com.service.problemmanagement.proto.Problem getProblem(String id) {
-        return problems.findById(id).map(this::toProto).orElse(null);
+    public Problem getProblem(String id) {
+        ProblemEntity entity = problemRepo.findById(id)
+            .orElseThrow(() -> new RuntimeException("Problem not found"));
+        return toProto(entity);
     }
 
-    public com.service.problemmanagement.proto.Problem createProblem(com.service.problemmanagement.proto.Problem protoRequest) {
-        Problem model = new Problem();
-        updateModelFromProto(model, protoRequest);
-        model.setSlug(uniqueSlug(protoRequest.getTitle(), null));
-        model = problems.save(model);
-        syncSolutions(model.getId(), protoRequest.getSolutionsList());
-        syncTestCases(model.getId(), protoRequest.getTestsList());
-        return toProto(model);
+    // Resolves Issues #8 and #9: Entity Relationships and Validation
+    public Problem saveProblem(String id, Problem proto) {
+        if (proto.getTitle() == null || proto.getTitle().isBlank()) {
+            throw new IllegalArgumentException("Title is required");
+        }
+
+        ProblemEntity entity = id != null ? problemRepo.findById(id).orElse(new ProblemEntity()) : new ProblemEntity();
+        
+        entity.setTitle(proto.getTitle());
+        entity.setSlug(proto.getTitle().toLowerCase().replace(" ", "-").replaceAll("[^a-z0-9-]", ""));
+        entity.setDifficulty(proto.getDifficulty().name());
+        entity.setDescription(proto.getDescription());
+        entity.setExamples(proto.getExamples());
+        entity.setConstraints(proto.getConstraints());
+        entity.setIntuition(proto.getIntuition());
+        entity.setApproach(proto.getApproach());
+        entity.setTimeComplexity(proto.getTimeComplexity());
+        entity.setSpaceComplexity(proto.getSpaceComplexity());
+        entity.setTopics(proto.getTopicsList());
+
+        entity = problemRepo.save(entity);
+
+        // Resolves Issue #1: Actually persist the solutions and test cases
+        updateSolutions(entity.getId(), proto.getSolutionsList());
+        updateTestCases(entity.getId(), proto.getTestsList());
+
+        return toProto(entity);
     }
 
-    public com.service.problemmanagement.proto.Problem updateProblem(String id, com.service.problemmanagement.proto.Problem protoRequest) {
-        return problems.findById(id).map(model -> {
-            updateModelFromProto(model, protoRequest);
-            model.setSlug(uniqueSlug(protoRequest.getTitle(), model.getId()));
-            model.setUpdatedAt(Instant.now());
-            model = problems.save(model);
-            syncSolutions(model.getId(), protoRequest.getSolutionsList());
-            syncTestCases(model.getId(), protoRequest.getTestsList());
-            return toProto(model);
-        }).orElse(null);
+    public void deleteProblem(String id) {
+        problemRepo.deleteById(id);
+        solutionRepo.deleteByProblemId(id);
+        testCaseRepo.deleteByProblemId(id);
     }
 
-    public boolean deleteProblem(String id) {
-        if (!problems.existsById(id)) return false;
-        solutions.deleteByProblemId(id);
-        tests.deleteByProblemId(id);
-        problems.deleteById(id);
-        return true;
+    private void updateSolutions(String problemId, List<Solution> protos) {
+        for (Solution proto : protos) {
+            SolutionEntity sol = solutionRepo.findByProblemIdAndLanguage(problemId, proto.getLanguage().name())
+                .orElse(new SolutionEntity());
+            sol.setProblemId(problemId);
+            sol.setLanguage(proto.getLanguage().name());
+            sol.setCode(proto.getCode());
+            solutionRepo.save(sol);
+        }
     }
 
-    // --- Mapping Utilities ---
+    private void updateTestCases(String problemId, List<TestCase> protos) {
+        // Wipe existing test cases to cleanly sync the exact array sent from the UI
+        testCaseRepo.deleteByProblemId(problemId);
+        
+        for (TestCase proto : protos) {
+            TestCaseEntity tc = new TestCaseEntity();
+            tc.setProblemId(problemId);
+            tc.setInput(proto.getInput());
+            tc.setExpectedOutput(proto.getExpectedOutput());
+            tc.setHidden(proto.getHidden());
+            testCaseRepo.save(tc);
+        }
+    }
 
-    private com.service.problemmanagement.proto.Problem toProto(Problem model) {
-        com.service.problemmanagement.proto.Problem.Builder builder = com.service.problemmanagement.proto.Problem.newBuilder()
-                .setId(model.getId() == null ? "" : model.getId())
-                .setTitle(model.getTitle() == null ? "" : model.getTitle())
-                .setSlug(model.getSlug() == null ? "" : model.getSlug())
-                .setDifficulty(com.service.problemmanagement.proto.Difficulty.valueOf(model.getDifficulty()))
-                .setDescription(model.getDescription() == null ? "" : model.getDescription())
-                .setExamples(model.getExamples() == null ? "" : model.getExamples())
-                .setConstraints(model.getConstraints() == null ? "" : model.getConstraints())
-                .setIntuition(model.getIntuition() == null ? "" : model.getIntuition())
-                .setApproach(model.getApproach() == null ? "" : model.getApproach())
-                .setTimeComplexity(model.getTimeComplexity() == null ? "" : model.getTimeComplexity())
-                .setSpaceComplexity(model.getSpaceComplexity() == null ? "" : model.getSpaceComplexity())
-                .addAllTopics(model.getTopics());
+    private Problem toProto(ProblemEntity entity) {
+        Problem.Builder builder = Problem.newBuilder()
+            .setId(entity.getId() != null ? entity.getId() : "")
+            .setTitle(entity.getTitle() != null ? entity.getTitle() : "")
+            .setSlug(entity.getSlug() != null ? entity.getSlug() : "")
+            .setDifficulty(Difficulty.valueOf(entity.getDifficulty() != null ? entity.getDifficulty() : "MEDIUM"))
+            .setDescription(entity.getDescription() != null ? entity.getDescription() : "")
+            .setExamples(entity.getExamples() != null ? entity.getExamples() : "")
+            .setConstraints(entity.getConstraints() != null ? entity.getConstraints() : "")
+            .setIntuition(entity.getIntuition() != null ? entity.getIntuition() : "")
+            .setApproach(entity.getApproach() != null ? entity.getApproach() : "")
+            .setTimeComplexity(entity.getTimeComplexity() != null ? entity.getTimeComplexity() : "")
+            .setSpaceComplexity(entity.getSpaceComplexity() != null ? entity.getSpaceComplexity() : "");
 
-        // Attach associated data
-        solutions.findByProblemId(model.getId()).forEach(sol -> 
-            builder.addSolutions(com.service.problemmanagement.proto.Solution.newBuilder()
-                .setId(sol.getId() == null ? "" : sol.getId())
-                .setProblemId(sol.getProblemId() == null ? "" : sol.getProblemId())
-                .setLanguage(com.service.problemmanagement.proto.Language.valueOf(sol.getLanguage()))
-                .setCode(sol.getCode() == null ? "" : sol.getCode())
-                .build())
-        );
+        if (entity.getTopics() != null) {
+            builder.addAllTopics(entity.getTopics());
+        }
 
-        tests.findByProblemId(model.getId()).forEach(test -> 
-            builder.addTests(com.service.problemmanagement.proto.TestCase.newBuilder()
-                .setId(test.getId() == null ? "" : test.getId())
-                .setProblemId(test.getProblemId() == null ? "" : test.getProblemId())
-                .setInput(test.getInput() == null ? "" : test.getInput())
-                .setExpectedOutput(test.getExpectedOutput() == null ? "" : test.getExpectedOutput())
-                .setHidden(test.isHidden())
-                .build())
-        );
+        if (entity.getId() != null) {
+            List<Solution> sols = solutionRepo.findByProblemId(entity.getId()).stream()
+                .map(s -> Solution.newBuilder()
+                    .setId(s.getId() != null ? s.getId() : "")
+                    .setProblemId(s.getProblemId())
+                    .setLanguage(Language.valueOf(s.getLanguage()))
+                    .setCode(s.getCode() != null ? s.getCode() : "")
+                    .build())
+                .toList();
+            builder.addAllSolutions(sols);
+
+            List<TestCase> tcs = testCaseRepo.findByProblemId(entity.getId()).stream()
+                .map(tc -> TestCase.newBuilder()
+                    .setId(tc.getId() != null ? tc.getId() : "")
+                    .setProblemId(tc.getProblemId())
+                    .setInput(tc.getInput() != null ? tc.getInput() : "")
+                    .setExpectedOutput(tc.getExpectedOutput() != null ? tc.getExpectedOutput() : "")
+                    .setHidden(tc.isHidden())
+                    .build())
+                .toList();
+            builder.addAllTests(tcs);
+        }
 
         return builder.build();
-    }
-
-    private void updateModelFromProto(Problem model, com.service.problemmanagement.proto.Problem proto) {
-        model.setTitle(proto.getTitle());
-        model.setDifficulty(proto.getDifficulty().name());
-        model.setDescription(proto.getDescription());
-        model.setExamples(proto.getExamples());
-        model.setConstraints(proto.getConstraints());
-        model.setIntuition(proto.getIntuition());
-        model.setApproach(proto.getApproach());
-        model.setTimeComplexity(proto.getTimeComplexity());
-        model.setSpaceComplexity(proto.getSpaceComplexity());
-        model.setTopics(proto.getTopicsList());
-    }
-
-    /**
-     * Persists the solutions embedded in the incoming proto Problem, treating the
-     * list as the complete, authoritative set of solutions for this problem: existing
-     * solutions are updated in place, new languages are created, and any language that
-     * was previously saved but is no longer present in the incoming list is removed.
-     */
-    private void syncSolutions(String problemId, List<com.service.problemmanagement.proto.Solution> incoming) {
-        Map<String, Solution> existingByLanguage = new HashMap<>();
-        solutions.findByProblemId(problemId).forEach(s -> existingByLanguage.put(s.getLanguage(), s));
-
-        Set<String> keepLanguages = new HashSet<>();
-        for (com.service.problemmanagement.proto.Solution protoSolution : incoming) {
-            String language = protoSolution.getLanguage().name();
-            keepLanguages.add(language);
-
-            Solution solution = existingByLanguage.get(language);
-            if (solution == null) {
-                solution = new Solution();
-                solution.setProblemId(problemId);
-                solution.setLanguage(language);
-            }
-            solution.setCode(protoSolution.getCode());
-            solution.setUpdatedAt(Instant.now());
-            solutions.save(solution);
-        }
-
-        existingByLanguage.forEach((language, solution) -> {
-            if (!keepLanguages.contains(language)) {
-                solutions.deleteById(solution.getId());
-            }
-        });
-    }
-
-    /**
-     * Persists the test cases embedded in the incoming proto Problem, treating the
-     * list as the complete, authoritative set of test cases for this problem: entries
-     * with a known id are updated in place, entries with no id (or an unknown id) are
-     * created, and any previously saved test case missing from the incoming list is removed.
-     */
-    private void syncTestCases(String problemId, List<com.service.problemmanagement.proto.TestCase> incoming) {
-        Map<String, TestCase> existingById = new HashMap<>();
-        tests.findByProblemId(problemId).forEach(t -> existingById.put(t.getId(), t));
-
-        Set<String> keepIds = new HashSet<>();
-        for (com.service.problemmanagement.proto.TestCase protoTest : incoming) {
-            TestCase testCase = existingById.get(protoTest.getId());
-            if (testCase == null) {
-                testCase = new TestCase();
-                testCase.setProblemId(problemId);
-            }
-            testCase.setInput(protoTest.getInput());
-            testCase.setExpectedOutput(protoTest.getExpectedOutput());
-            testCase.setHidden(protoTest.getHidden());
-            testCase = tests.save(testCase);
-            keepIds.add(testCase.getId());
-        }
-
-        existingById.forEach((id, testCase) -> {
-            if (!keepIds.contains(id)) {
-                tests.deleteById(id);
-            }
-        });
-    }
-
-    private String uniqueSlug(String title, String currentId) {
-        String base = title.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", "-").replaceAll("(^-|-$)", "");
-        if (base.isBlank()) base = "problem";
-        String slug = base;
-        int i = 2;
-        while (problems.findBySlug(slug).filter(p -> currentId == null || !p.getId().equals(currentId)).isPresent()) {
-            slug = base + "-" + (i++);
-        }
-        return slug;
     }
 }

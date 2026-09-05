@@ -1,14 +1,12 @@
 package com.service.problemmanagement.repository;
 
+import com.service.problemmanagement.model.SolutionEntity;
+import org.springframework.data.mongodb.repository.MongoRepository;
 import java.util.List;
 import java.util.Optional;
 
-import org.springframework.data.mongodb.repository.MongoRepository;
-
-import com.service.problemmanagement.model.Solution;
-
-public interface SolutionRepository extends MongoRepository<Solution, String> {
-    Optional<Solution> findByProblemIdAndLanguage(String problemId, String language);
-    List<Solution> findByProblemId(String problemId);
+public interface SolutionRepository extends MongoRepository<SolutionEntity, String> {
+    Optional<SolutionEntity> findByProblemIdAndLanguage(String problemId, String language);
+    List<SolutionEntity> findByProblemId(String problemId);
     void deleteByProblemId(String problemId);
 }

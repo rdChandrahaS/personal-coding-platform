@@ -1,58 +1,57 @@
 package com.service.problemmanagement.controller;
 
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 
-import com.service.problemmanagement.proto.ProblemListResponse;
 import com.service.problemmanagement.service.ProblemService;
-
+import com.service.problemmanagement.proto.Problem;
+import com.service.problemmanagement.proto.ProblemListResponse;
 import lombok.RequiredArgsConstructor;
 
-@RestController
-@RequestMapping("/api/problems")
+@RestController 
+@RequestMapping ("/api/problems")
 @RequiredArgsConstructor
 public class ProblemController {
 
     private final ProblemService problemService;
 
-    @GetMapping(produces = "application/x-protobuf")
+    @GetMapping (produces = "application/x-protobuf")
     public ProblemListResponse listProblems(
-        @RequestParam(required = false) String q,
-        @RequestParam(required = false) String difficulty) {
+            @RequestParam (required = false) String q,
+            @RequestParam(required = false) String difficulty) {
         return problemService.listProblems(q, difficulty);
     }
 
     @GetMapping(value = "/{id}", produces = "application/x-protobuf")
-    public ResponseEntity<com.service.problemmanagement.proto.Problem> getProblem(@PathVariable("id") String id) {
-        com.service.problemmanagement.proto.Problem problem = problemService.getProblem(id);
-        if (problem == null) {
+    public ResponseEntity<Problem> getProblem(@PathVariable String id) {
+        try {
+            return ResponseEntity.ok(problemService.getProblem(id));
+        } catch (Exception e) {
             return ResponseEntity.notFound().build();
         }
-        return ResponseEntity.ok(problem);
     }
 
-    @PostMapping(consumes = "application/x-protobuf", produces = "application/x-protobuf")
-    public com.service.problemmanagement.proto.Problem createProblem(@RequestBody com.service.problemmanagement.proto.Problem request) {
-        return problemService.createProblem(request);
+    @PostMapping (consumes = "application/x-protobuf", produces = "application/x-protobuf")
+    public Problem createProblem(@RequestBody Problem problem) {
+        return problemService.saveProblem(null, problem);
     }
 
     @PutMapping(value = "/{id}", consumes = "application/x-protobuf", produces = "application/x-protobuf")
-    public ResponseEntity<com.service.problemmanagement.proto.Problem> updateProblem(
-            @PathVariable("id") String id, 
-            @RequestBody com.service.problemmanagement.proto.Problem request) {
-        
-        com.service.problemmanagement.proto.Problem updated = problemService.updateProblem(id, request);
-        if (updated == null) {
-            return ResponseEntity.notFound().build();
-        }
-        return ResponseEntity.ok(updated);
+    public Problem updateProblem(@PathVariable String id, @RequestBody Problem problem) {
+        return problemService.saveProblem(id, problem);
     }
 
-    @DeleteMapping("/{id}")
-    public ResponseEntity<Void> deleteProblem(@PathVariable("id") String id) {
-        if (!problemService.deleteProblem(id)) {
-            return ResponseEntity.notFound().build();
-        }
-        return ResponseEntity.noContent().build();
+    @DeleteMapping ("/{id}")
+    public ResponseEntity<Void> deleteProblem(@PathVariable String id) {
+        problemService.deleteProblem(id);
+        return ResponseEntity.ok().build();
     }
 }

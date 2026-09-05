@@ -1,12 +1,10 @@
 package com.service.problemmanagement.repository;
 
+import com.service.problemmanagement.model.TestCaseEntity;
+import org.springframework.data.mongodb.repository.MongoRepository;
 import java.util.List;
 
-import org.springframework.data.mongodb.repository.MongoRepository;
-
-import com.service.problemmanagement.model.TestCase;
-
-public interface TestCaseRepository extends MongoRepository<TestCase, String> {
-    List<TestCase> findByProblemId(String problemId);
+public interface TestCaseRepository extends MongoRepository<TestCaseEntity, String> {
+    List<TestCaseEntity> findByProblemId(String problemId);
     void deleteByProblemId(String problemId);
 }
