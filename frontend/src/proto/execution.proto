@@ -1,0 +1,32 @@
+syntax = "proto3";
+
+package execution;
+
+option java_package = "com.service.execution.proto";
+option java_multiple_files = true;
+
+message RunRequest {
+    string language = 1;
+    string code = 2;
+    string input = 3;
+}
+
+message ExecutionResult {
+    string status = 1;
+    string stdout = 2;
+    string stderr = 3;
+    int64 executionTimeMs = 4;
+}
+
+message CaseResult {
+    int32 caseNumber = 1;
+    bool passed = 2;
+    string expected = 3;
+    string actual = 4;
+    string executionStatus = 5;
+}
+
+message SubmissionResponse {
+    string status = 1;
+    repeated CaseResult results = 2;
+}

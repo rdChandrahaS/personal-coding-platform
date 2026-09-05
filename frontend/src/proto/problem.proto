@@ -1,0 +1,55 @@
+syntax = "proto3";
+
+package problemmanagement;
+
+option java_package = "com.service.problemmanagement.proto";
+option java_multiple_files = true;
+
+enum Difficulty {
+    EASY = 0;
+    MEDIUM = 1;
+    HARD = 2;
+}
+
+enum Language {
+    PYTHON = 0;
+    JAVA = 1;
+    C = 2;
+    CPP = 3;
+}
+
+message TestCase {
+    string id = 1;
+    string problemId = 2;
+    string input = 3;
+    string expectedOutput = 4;
+    bool hidden = 5;
+}
+
+message Solution {
+    string id = 1;
+    string problemId = 2;
+    Language language = 3;
+    string code = 4;
+}
+
+message Problem {
+    string id = 1;
+    string title = 2;
+    string slug = 3;
+    Difficulty difficulty = 4;
+    string description = 5;
+    string examples = 6;
+    string constraints = 7;
+    string intuition = 8;
+    string approach = 9;
+    string timeComplexity = 10;
+    string spaceComplexity = 11;
+    repeated string topics = 12;
+    repeated Solution solutions = 13;
+    repeated TestCase tests = 14;
+}
+
+message ProblemListResponse {
+    repeated Problem problems = 1;
+}

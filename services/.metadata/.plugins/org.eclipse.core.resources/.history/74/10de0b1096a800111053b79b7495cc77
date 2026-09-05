@@ -1,0 +1,82 @@
+package com.service.execution.controller;
+
+import com.service.execution.service.DockerExecutionService;
+
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.client.RestTemplate;
+
+@RestController
+@RequestMapping("/api/execute")
+public class ExecutionController {
+
+    private final DockerExecutionService executor;
+    private final RestTemplate restTemplate;
+
+    @Value("${problem.service.url}")
+    private String problemServiceUrl;
+
+    public ExecutionController(DockerExecutionService executor, RestTemplate restTemplate) {
+        this.executor = executor;
+        this.restTemplate = restTemplate;
+    }
+
+    @PostMapping(value = "/run", consumes = "application/x-protobuf", produces = "application/x-protobuf")
+    public ExecutionResult run(@RequestBody RunRequest req) {
+        return executor.run(req.getLanguage(), req.getCode(), req.getInput());
+    }
+
+    @PostMapping(value = "/submit/{problemId}", consumes = "application/x-protobuf", produces = "application/x-protobuf")
+    public ResponseEntity<SubmissionResponse> submit(@PathVariable("problemId") String problemId, @RequestBody RunRequest req) {
+        
+        // 1. Fetch Problem and Test Cases from Problem Service via Protobuf
+        String url = problemServiceUrl + "/api/problems/" + problemId;
+        ResponseEntity<Problem> response;
+        try {
+            response = restTemplate.getForEntity(url, Problem.class);
+        } catch (Exception e) {
+            return ResponseEntity.notFound().build();
+        }
+
+        Problem problem = response.getBody();
+        if (problem == null || problem.getTestsCount() == 0) {
+            return ResponseEntity.notFound().build();
+        }
+
+        // 2. Execute Code against Test Cases
+        SubmissionResponse.Builder subBuilder = SubmissionResponse.newBuilder();
+        boolean allAccepted = true;
+        int caseNumber = 1;
+
+        for (TestCase tc : problem.getTestsList()) {
+            ExecutionResult runResult = executor.run(req.getLanguage(), req.getCode(), tc.getInput());
+            
+            String actual = runResult.getStdout().trim();
+            String expected = tc.getExpectedOutput().trim();
+            boolean passed = runResult.getStatus().equals("SUCCESS") && actual.equals(expected);
+            
+            allAccepted &= passed;
+
+            CaseResult.Builder caseBuilder = CaseResult.newBuilder()
+                    .setCaseNumber(caseNumber++)
+                    .setPassed(passed)
+                    .setExecutionStatus(runResult.getStatus())
+                    .setActual(actual);
+
+            // Hide expected output from payload if the test case is marked hidden
+            if (!tc.getHidden()) {
+                caseBuilder.setExpected(expected);
+            }
+
+            subBuilder.addResults(caseBuilder.build());
+
+            // Short-circuit on first failure (like LeetCode)
+            if (!passed) {
+                break;
+            }
+        }
+
+        subBuilder.setStatus(allAccepted ? "ACCEPTED" : "WRONG_ANSWER");
+        return ResponseEntity.ok(subBuilder.build());
+    }
+}

@@ -1,0 +1,46 @@
+server:
+  port: 8080 # The React frontend still calls localhost:8080
+
+spring:
+  application:
+    name: api-gateway
+  
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      
+  cloud:
+    gateway:
+      globalcors:
+        cors-configurations:
+          '[/**]':
+            allowedOrigins: 
+              - "http://localhost:5173"
+              - "http://127.0.0.1:5173"
+            allowedMethods:
+              - GET
+              - POST
+              - PUT
+              - DELETE
+              - OPTIONS
+            allowedHeaders: "*"
+            
+      routes:
+        # Route for Problem Management
+        - id: problem-service
+          uri: http://localhost:8081 
+          predicates:
+            - Path=/api/problems/**
+
+        # Route for Code Execution (With Rate Limiting)
+        - id: execution-service
+          uri: http://localhost:8082
+          predicates:
+            - Path=/api/execute/**
+          filters:
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: 2 # Tokens added per second
+                redis-rate-limiter.burstCapacity: 5 # Maximum burst capacity
+                redis-rate-limiter.requestedTokens: 1
